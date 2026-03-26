@@ -42,3 +42,9 @@ brew install --cask arai
    brew tap mattkoltun/apps /Users/mkoltun/repos/homebrew-apps
    brew install --cask arai
    ```
+
+## Automation
+
+This repo includes [`update-arai-cask.yml`](/Users/mkoltun/repos/homebrew-apps/.github/workflows/update-arai-cask.yml), which updates `Casks/arai.rb` after an Arai release is published and the expected DMG asset is available.
+
+The intended trigger is a `repository_dispatch` event with type `arai_release_published` sent from `mattkoltun/arai` after its release workflow completes successfully. Manual reruns are also supported with `workflow_dispatch`.

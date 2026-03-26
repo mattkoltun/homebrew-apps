@@ -1,0 +1,154 @@
+name: Update Arai Cask
+
+on:
+  repository_dispatch:
+    types:
+      - arai_release_published
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to sync, for example v0.18.0"
+        required: false
+        type: string
+      version:
+        description: "Release version to sync, for example 0.18.0"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-arai-cask
+  cancel-in-progress: false
+
+jobs:
+  update-cask:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out tap repo
+        uses: actions/checkout@v4
+
+      - name: Resolve release metadata
+        id: release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          INPUT_VERSION: ${{ inputs.version }}
+          PAYLOAD_RELEASE_TAG: ${{ github.event.client_payload.release_tag }}
+          PAYLOAD_TAG: ${{ github.event.client_payload.tag }}
+          PAYLOAD_VERSION: ${{ github.event.client_payload.version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          release_tag="${INPUT_RELEASE_TAG:-}"
+          if [[ -z "$release_tag" ]]; then
+            release_tag="${PAYLOAD_RELEASE_TAG:-}"
+          fi
+          if [[ -z "$release_tag" ]]; then
+            release_tag="${PAYLOAD_TAG:-}"
+          fi
+
+          version="${INPUT_VERSION:-}"
+          if [[ -z "$version" ]]; then
+            version="${PAYLOAD_VERSION:-}"
+          fi
+
+          if [[ -n "$release_tag" ]]; then
+            api_url="https://api.github.com/repos/mattkoltun/arai/releases/tags/${release_tag}"
+          else
+            api_url="https://api.github.com/repos/mattkoltun/arai/releases/latest"
+          fi
+
+          curl -fsSL \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "$api_url" \
+            -o release.json
+
+          python3 <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          with open("release.json", "r", encoding="utf-8") as fh:
+              release = json.load(fh)
+
+          if release.get("draft"):
+              sys.exit("Release is still a draft.")
+
+          if not release.get("published_at"):
+              sys.exit("Release is not published yet.")
+
+          tag_name = release["tag_name"]
+          version = os.environ.get("INPUT_VERSION") or os.environ.get("PAYLOAD_VERSION")
+          if not version:
+              match = re.fullmatch(r"v?(.+)", tag_name)
+              if not match:
+                  sys.exit(f"Could not derive version from tag {tag_name!r}.")
+              version = match.group(1)
+
+          expected_name = f"Arai-{version}-macos-universal.dmg"
+          asset = next((item for item in release.get("assets", []) if item.get("name") == expected_name), None)
+          if asset is None:
+              available = ", ".join(item.get("name", "<unnamed>") for item in release.get("assets", []))
+              sys.exit(
+                  f"Expected asset {expected_name!r} was not found in release {tag_name!r}. "
+                  f"Available assets: {available}"
+              )
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"tag_name={tag_name}\n")
+              out.write(f"version={version}\n")
+              out.write(f"asset_name={asset['name']}\n")
+              out.write(f"asset_url={asset['browser_download_url']}\n")
+          PY
+
+      - name: Download DMG and compute checksum
+        id: checksum
+        env:
+          ASSET_URL: ${{ steps.release.outputs.asset_url }}
+          ASSET_NAME: ${{ steps.release.outputs.asset_name }}
+        run: |
+          set -euo pipefail
+          curl -fsSL "$ASSET_URL" -o "$ASSET_NAME"
+          sha256="$(sha256sum "$ASSET_NAME" | awk '{print $1}')"
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Update cask file
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          SHA256: ${{ steps.checksum.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          path = Path("Casks/arai.rb")
+          content = path.read_text(encoding="utf-8")
+          content = re.sub(r'version "[^"]+"', f'version "{os.environ["VERSION"]}"', content, count=1)
+          content = re.sub(r'sha256 "[^"]+"', f'sha256 "{os.environ["SHA256"]}"', content, count=1)
+          path.write_text(content, encoding="utf-8")
+          PY
+
+      - name: Commit and push changes
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- Casks/arai.rb; then
+            echo "Cask already matches release ${VERSION}; nothing to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/arai.rb
+          git commit -m "Update Arai cask to ${VERSION}"
+          git push
