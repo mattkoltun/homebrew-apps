@@ -7,13 +7,39 @@ This tap can host both CLI formulae in `Formula/` and macOS app casks in `Casks/
 ## Current packages
 
 - `arai` (`brew install --cask arai`)
+- `retro-timer` (`brew install --cask retro-timer`)
 
 ## Usage
 
 ```sh
 brew tap mattkoltun/apps
 brew install --cask arai
+brew install --cask retro-timer
 ```
+
+## Releasing `retro-timer`
+
+1. Build release artifacts from the app repo:
+
+   ```sh
+   cd ../retro-timer
+   npm install
+   npm run dist:mac
+   ```
+
+2. Publish the macOS DMGs to the GitHub release:
+
+   `https://github.com/mattkoltun/retro-timer/releases/download/v<version>/RetroTimer-<version>-arm64.dmg`
+
+   `https://github.com/mattkoltun/retro-timer/releases/download/v<version>/RetroTimer-<version>.dmg`
+
+3. Optionally compute the checksum for later hardening of the Intel cask asset too:
+
+   ```sh
+   shasum -a 256 RetroTimer-<version>-arm64.dmg
+   ```
+
+4. Update [`Casks/retro-timer.rb`](/Users/mkoltun/repos/homebrew-apps/Casks/retro-timer.rb) with the new `version` and checksums when a new release is published.
 
 ## Releasing `arai`
 
