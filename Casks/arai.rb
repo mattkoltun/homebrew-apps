@@ -1,6 +1,6 @@
 cask "arai" do
-  version "0.19.0"
-  sha256 "b5f5a73764a1a78eeec40b4dbd894b2251c0de14e8e5a050a6eeeaef3990cc3c"
+  version "0.19.1"
+  sha256 "b2643b65df2dfb50f3b7f268857099f828d658eba8e2bc7c8e5dd4a018473e5f"
 
   url "https://github.com/mattkoltun/arai/releases/download/v#{version}/Arai-#{version}-macos-universal.dmg"
   name "Arai"
